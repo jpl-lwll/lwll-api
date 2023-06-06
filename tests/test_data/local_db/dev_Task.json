@@ -1,0 +1,234 @@
+{
+    "problem_test_image_classification": {
+        "base_label_budget_sample": [
+            10,
+            20,
+            30,
+            40,
+            50
+        ],
+        "adaptation_label_budget_sample": [
+            10,
+            20,
+            30,
+            40,
+            50
+        ],
+        "adaptation_label_budget_full": [
+            10,
+            20,
+            30,
+            40,
+            50,
+            60,
+            70
+        ],
+        "uda_base_to_adapt_overlap_ratio": 1.0,
+        "uda_adapt_to_base_overlap_ratio": 1.0,
+        "problem_type": "image_classification",
+        "optional_sub_tasks": [],
+        "whitelist": [
+            "imagenet_1k",
+            "coco2014",
+            "voc2009",
+            "imagenet_bbox",
+            "domain_net-quickdraw",
+            "domain_net-painting",
+            "domain_net-infograph",
+            "domain_net-clipart",
+            "domain_net-sketch",
+            "cifar100",
+            "domain_net-all",
+            "face_detection",
+            "domain_net-real",
+            "pool_car_detection",
+            "google_open_image"
+        ],
+        "base_label_budget_full": [
+            10,
+            20,
+            30,
+            40,
+            50,
+            60,
+            700
+        ],
+        "base_dataset": "mnist",
+        "adaptation_dataset": "mnist",
+        "adaptation_evaluation_metrics": [
+            "accuracy",
+            "top_5_accuracy",
+            "roc_auc",
+            "cross_entropy_logloss",
+            "brier_score",
+            "weighted_accuracy"
+        ],
+        "base_seed_labels": {
+            "1": [
+                {
+                    "id": "1.png",
+                    "class": "0"
+                },
+                {
+                    "id": "2.png",
+                    "class": "0"
+                },
+                {
+                    "id": "3.png",
+                    "class": "1"
+                },
+                {
+                    "id": "4.png",
+                    "class": "1"
+                },
+                {
+                    "id": "5.png",
+                    "class": "2"
+                }
+            ],
+            "2": [
+                {
+                    "class": "0",
+                    "id": "10.png"
+                },
+                {
+                    "id": "20.png",
+                    "class": "0"
+                },
+                {
+                    "id": "30.png",
+                    "class": "0"
+                },
+                {
+                    "id": "40.png",
+                    "class": "0"
+                },
+                {
+                    "id": "50.png",
+                    "class": "0"
+                }
+            ],
+            "3": [
+                {
+                    "id": "100.png",
+                    "class": "0"
+                },
+                {
+                    "id": "200.png",
+                    "class": "1"
+                },
+                {
+                    "id": "300.png",
+                    "class": "2"
+                },
+                {
+                    "id": "400.png",
+                    "class": "3"
+                },
+                {
+                    "id": "500.png",
+                    "class": "4"
+                }
+            ]
+        },
+        "task_id": "problem_test_image_classification",
+        "adaptation_seed_labels": {
+            "0": [
+                {
+                    "class": "0",
+                    "id": "10.png"
+                },
+                {
+                    "class": "1",
+                    "id": "20.png"
+                },
+                {
+                    "class": "2",
+                    "id": "30.png"
+                },
+                {
+                    "class": "3",
+                    "id": "40.png"
+                },
+                {
+                    "class": "4",
+                    "id": "50.png"
+                }
+            ],
+            "1": [
+                {
+                    "class": "0",
+                    "id": "100.png"
+                },
+                {
+                    "class": "1",
+                    "id": "200.png"
+                },
+                {
+                    "class": "2",
+                    "id": "300.png"
+                },
+                {
+                    "class": "3",
+                    "id": "400.png"
+                },
+                {
+                    "class": "4",
+                    "id": "500.png"
+                }
+            ],
+            "2": [
+                {
+                    "class": "0",
+                    "id": "100.png"
+                },
+                {
+                    "class": "1",
+                    "id": "200.png"
+                },
+                {
+                    "class": "2",
+                    "id": "30.png"
+                },
+                {
+                    "class": "3",
+                    "id": "40.png"
+                },
+                {
+                    "class": "4",
+                    "id": "500.png"
+                }
+            ],
+            "3": [
+                {
+                    "class": "0",
+                    "id": "10.png"
+                },
+                {
+                    "class": "1",
+                    "id": "20.png"
+                },
+                {
+                    "class": "2",
+                    "id": "300.png"
+                },
+                {
+                    "class": "3",
+                    "id": "400.png"
+                },
+                {
+                    "class": "4",
+                    "id": "50.png"
+                }
+            ]
+        },
+        "base_evaluation_metrics": [
+            "accuracy",
+            "top_5_accuracy",
+            "roc_auc",
+            "cross_entropy_logloss",
+            "brier_score",
+            "weighted_accuracy"
+        ]
+    }
+}

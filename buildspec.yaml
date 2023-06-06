@@ -1,0 +1,74 @@
+version: 0.2
+
+env:
+  secrets-manager:
+    DOCKERHUB_PASS: "docker-registry-key:password"
+    DOCKERHUB_USERNAME: "docker-registry-key:username"
+phases:
+  install:
+    commands:
+      - echo Logging into Dockerhub 
+      - docker login --username $DOCKERHUB_USERNAME --password $DOCKERHUB_PASS
+    runtime-versions:
+      docker: 18
+      python: 3.7
+  pre_build:
+    commands:
+      - pip3 install pytest
+      - echo Logging in to Amazon ECR...
+      - aws --version
+      - $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+      - echo "${CODEBUILD_RESOLVED_SOURCE_VERSION}"
+      - TAG="$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 8)"
+      - IMAGE_URI="${REPOSITORY_URI}:${TAG}"
+      - mkdir ./lwll_api/classes/service_accounts
+      - ls ./lwll_api/classes
+      - aws s3 cp s3://apisecrets/firebase_creds.json ./lwll_api/classes/service_accounts/.
+      - ls ./lwll_api/classes/service_accounts
+      - echo "deploymentenv is ${DEPLOYMENT_ENV}"
+      - echo "s3 path is s3://apisecrets/.envs_${DEPLOYMENT_ENV}"
+      - aws s3 cp s3://apisecrets/.envs_${DEPLOYMENT_ENV} .
+      - set -o allexport; . ./.envs_${DEPLOYMENT_ENV}; set +o allexport
+      - echo "session mode set to ${LWLL_SESSION_MODE}"
+      - export SERVERTYPE=REMOTE
+      - echo "server mode set to ${SERVERTYPE}"
+      - echo "govteam_secret set to ${GOVTEAM_SECRET}"
+      - pip3 install -r requirements.txt
+
+  build:
+    commands:
+      - echo "Running pytests"
+      - python -m pytest tests/test_routes.py --junitxml=tests/test_file.xml
+      - echo Build started on `date`
+      - echo "Building --> ${IMAGE_URI}"
+      - >
+          docker build 
+          --build-arg LWLL_SESSION_MODE=${LWLL_SESSION_MODE}
+          --build-arg AWS_REGION_NAME=${AWS_REGION_NAME}
+          --build-arg DATASETS_BUCKET=${DATASETS_BUCKET}
+          --build-arg GOVTEAM_SECRET=${GOVTEAM_SECRET} --tag "$IMAGE_URI" .
+      - docker tag "$IMAGE_URI" "${REPOSITORY_URI}:latest"
+
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
+      - docker push "$IMAGE_URI"
+      - docker push "${REPOSITORY_URI}:latest"
+      # https://docs.aws.amazon.com/codepipeline/latest/userguide/file-reference.html
+      - echo -n "$IMAGE_URI" > image_url.txt
+      - printf '[{"name":"%s","imageUri":"%s"}]' "$ECS_CONTAINER" "$IMAGE_URI" > imagedefinitions.json
+      - printf '{"ImageURI":"%s"}' "$IMAGE_URI" > imageDetail.json
+
+reports:
+  pytest_reports:
+    files:
+      - test_file.xml
+    base-directory: tests
+    file-format: JUNITXML
+
+artifacts:
+  files:
+    - image_url.txt
+    - imagedefinitions.json
+    - imageDetail.json

@@ -1,0 +1,61 @@
+cache:
+  paths:
+    - venv/
+
+stages:
+  - test
+  - deploy
+
+validation:
+  image: python:3.7
+  stage: test
+  variables:
+    TMP_VAR: $FB_AUTH
+  before_script:
+    - mkdir lwll_api/classes/service_accounts
+    - echo "setting variables"
+    - export AWS_REGION_NAME=$DEVEL_AWS_REGION_NAME
+    - export USER_SECRET=$USER_SECRET
+    - echo $AWS_REGION_NAME
+    - export FB_CREDS=$FB_CREDS
+    - echo $FB_CREDS
+    - echo $TMP_VAR
+    - export ENVS_FILE=.envs_dev
+    - export BRANCH=$CI_COMMIT_BRANCH
+    - export TESTS_SECRET=$TESTS_SECRET
+    - if [ "$BRANCH" = "prod" ]; then export ENVS_FILE=.envs_prod; fi
+    - if [ "$BRANCH" = "staging" ]; then export ENVS_FILE=.envs_staging; fi
+    - echo env file is $ENVS_FILE
+
+
+  script:
+    - python -V
+    - pip install virtualenv
+    - virtualenv venv
+    - source venv/bin/activate
+    - pip install -r requirements.txt
+    - pip install mypy
+    - pip install flake8
+    - mypy .
+    - flake8
+    - echo "Running tests"
+    - pytest tests/test_routes.py --envfile $ENVS_FILE
+    - pytest tests/test_metrics.py --envfile $ENVS_FILE
+    - pytest tests/test_base.py --envfile $ENVS_FILE
+    - pytest tests/test_session_ic.py --envfile $ENVS_FILE
+    - pytest tests/test_session_od.py --envfile $ENVS_FILE
+    - pytest tests/test_session_mt.py --envfile $ENVS_FILE
+
+jpl_ta1:
+  stage: test
+  trigger:
+    project: lwll/jpl_ta1
+    branch: master
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "devel"
+      variables:
+        ENVIRONMENT: dev
+    - if: $CI_COMMIT_REF_NAME == "staging"
+      variables:
+        ENVIRONMENT: staging
+    - when: always

@@ -1,0 +1,436 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Template for setting up the lwll api build pipeline.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'lwll'
+  DeploymentEnv:
+    Type: String
+    Default: 'dev'
+    AllowedValues:
+      - 'dev'
+      - 'prod'
+      - 'staging'
+  Branch:
+    Type: String
+    Default: 'devel'
+    AllowedValues:
+      - 'devel'
+      - 'master'
+      - 'staging'
+  ECSPrefix:
+    Type: String
+    Default: 'My'
+    AllowedValues:
+      - 'My'
+      - 'Prod'
+      - 'Stage'
+  VpcID:
+    Type: String
+  DocsPrefix:
+    Type: String
+    Default: "docsdev"
+    AllowedValues:
+      - "docsdev"
+      - "docs"
+      - "docsstaging"
+
+Resources:
+  ###### S3 bucket  #######
+  artifactStoreS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+      VersioningConfiguration:
+        Status: Enabled
+
+  codePipelineSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: akdidier@jpl.nasa.gov
+          Protocol: email
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+        - Key: AppScope
+          Value: iam
+
+  CloudWatchEventRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: "/account-managed/"
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'codepipeline:StartPipelineExecution'
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:codepipeline:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+
+  CloudWatchEventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        resources:
+          - !Join
+            - ''
+            - - 'arn:aws:codecommit:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':'
+              - 'lwll_api'
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - !Ref Branch
+      Targets:
+        - Arn: !Join
+            - ''
+            - - 'arn:aws:codepipeline:'
+              - !Ref 'AWS::Region'
+              - ':'
+              - !Ref 'AWS::AccountId'
+              - ':'
+              - !Ref apiAppDeployPipeline
+          RoleArn: !GetAtt
+            - CloudWatchEventRole
+            - Arn
+          Id: codepipeline-apiAppDeployPipeline
+ 
+# # #################################################
+  apiCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_MEDIUM"
+        Image: aws/codebuild/standard:2.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: REPOSITORY_URI
+            Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/lwll_api_${DeploymentEnv}"
+          - Name: DEPLOYMENT_ENV
+            Value: !Sub "${DeploymentEnv}"
+          - Name: ECS_CONTAINER
+            Value: !Sub "${ECSPrefix}Service"
+        PrivilegedMode: True
+      Name: !Sub "${AWS::StackName}_codebuild"
+      ServiceRole: !GetAtt apiCodeBuildRole.Arn
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+
+  apiAppDeployPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref artifactStoreS3Bucket
+      RoleArn: !GetAtt apiCodePipelnRole.Arn
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: !Sub "${ProjectName}-Source-api"
+              InputArtifacts: []
+              Name: DockerProject
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: '1'
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}_api"
+              Configuration:
+                RepositoryName: "lwll_api"
+                BranchName: !Ref Branch
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: !Sub "${ProjectName}-Build-api"
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref apiCodeBuildProject
+              InputArtifacts:
+                - Name: !Sub "${ProjectName}_api"
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}_apiDockerBuildOutput"
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: !Sub "${ProjectName}-Deploy-api"
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: "ECS"
+                Version: '1'
+              InputArtifacts:
+                - Name: !Sub "${ProjectName}_apiDockerBuildOutput"
+              Configuration:
+                ClusterName: "MyServiceCluster"
+                ServiceName: !Sub "${ECSPrefix}Service"
+                FileName: "imagedefinitions.json"
+
+
+  apiCodeBuildRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: "/account-managed/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: "sts:AssumeRole"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "ecr:GetAuthorizationToken"
+                  - "s3:PutObject"
+              - Resource: !Join ["", [!GetAtt artifactStoreS3Bucket.Arn, /*]]
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:GetObjectVersion"
+              - Resource: !Join ["", ["arn:aws:s3:::apisecrets", /*]]
+                Effect: Allow
+                Action:
+                  - "s3:Get*"
+                  - "s3:List*"
+              - Resource: !Join ["", ["arn:aws:s3:::${DocsPrefix}.lwllapi.com", /*]]
+                Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+
+              - Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/lwll_api_${DeploymentEnv}"
+                Effect: Allow
+                Action:
+                  - "ecr:GetDownloadUrlForLayer"
+                  - "ecr:BatchGetImage"
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:PutImage"
+                  - "ecr:InitiateLayerUpload"
+                  - "ecr:UploadLayerPart"
+                  - "ecr:CompleteLayerUpload"
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                
+
+  apiCodePipelnRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: "/account-managed/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: "sts:AssumeRole"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${artifactStoreS3Bucket}/*"
+                Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+
+              - Resource:
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-apiBuildPipeline-${DeploymentEnv}"
+                  - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-apiBuildPipeline-${DeploymentEnv}/*"
+                Effect: Allow
+                Action:
+                  - "cloudformation:CreateStack"
+                  - "cloudformation:DescribeStacks"
+                  - "cloudformation:DeleteStack"
+                  - "cloudformation:UpdateStack"
+                  - "cloudformation:CreateChangeSet"
+                  - "cloudformation:ExecuteChangeSet"
+                  - "cloudformation:DeleteChangeSet"
+                  - "cloudformation:DescribeChangeSet"
+                  - "cloudformation:SetStackPolicy"
+
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  # - "iam:PassRole"
+                  - "ecs:DescribeServices"
+                  - "ecs:DescribeTaskDefinition"
+                  - "ecs:DescribeTasks"
+                  - "ecs:ListTasks"
+                  - "ecs:RegisterTaskDefinition"
+                  - "ecs:UpdateService"
+                  - "ecs: CreateTaskSet"
+                  - "ecs: UpdateServicePrimaryTaskSet"
+                  - "ecs: DeleteTaskSet"
+
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - "iam:PassRole"
+                Condition:
+                  StringEqualsIfExists:
+                    "iam:PassedToService":
+                      - "ec2.amazonaws.com"
+                      - "ecs-tasks.amazonaws.com"
+              # https://docs.aws.amazon.com/codebuild/latest/userguide/auth-and-access-control-permissions-reference.html
+              - Effect: Allow
+                Action:
+                  - "codebuild:StartBuild"
+                  - "codebuild:BatchGetBuilds"
+                Resource:
+                  - !GetAtt apiCodeBuildProject.Arn
+              # https://docs.aws.amazon.com/codecommit/latest/userguide/auth-and-access-control-permissions-reference.html
+              - Effect: Allow
+                Action:
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:UploadArchive"
+                  - "codecommit:GetUploadArchiveStatus"
+                  - "codecommit:CancelUploadArchive"
+                  - "codecommit:GitPull"
+                Resource: 
+                  - !Sub "arn:${AWS::Partition}:codecommit:${AWS::Region}:${AWS::AccountId}:lwll_api"
+
+
+  SlackbotRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: "/account-managed/"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: management.chatbot.amazonaws.com
+            Action: "sts:AssumeRole"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+        - Key: DeploymentEnv
+          Value: !Ref DeploymentEnv
+      ManagedPolicyArns:
+        - "arn:aws:iam::510230590071:policy/ChatbotSlackPolicy"
+
+  SlackChatbotConfiguration:
+    Type: AWS::Chatbot::SlackChannelConfiguration
+    Properties:
+      ConfigurationName: !Sub "${ProjectName}-${DeploymentEnv}-SlackChatbotConfig"
+      IamRoleArn: !GetAtt SlackbotRole.Arn
+      LoggingLevel: "INFO"
+#      SlackChannelId: GJCBP349J
+      SlackChannelId: G01BMNPP4AH
+      SlackWorkspaceId: TGTF197NE
+      SnsTopicArns:
+        - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ProjectName}-apiBuildPipeline-${DeploymentEnv}-codePipelineSNSTopic"
+
+  CodePipelineNotification:
+    Type: AWS::CodeStarNotifications::NotificationRule
+    Properties:
+      DetailType: BASIC
+      EventTypeIds:
+        - codepipeline-pipeline-action-execution-succeeded
+        - codepipeline-pipeline-action-execution-failed
+        - codepipeline-pipeline-action-execution-canceled
+        - codepipeline-pipeline-action-execution-started
+        - codepipeline-pipeline-stage-execution-started
+        - codepipeline-pipeline-stage-execution-succeeded
+        - codepipeline-pipeline-stage-execution-resumed
+        - codepipeline-pipeline-stage-execution-canceled
+        - codepipeline-pipeline-stage-execution-failed
+        - codepipeline-pipeline-pipeline-execution-failed
+        - codepipeline-pipeline-pipeline-execution-canceled
+        - codepipeline-pipeline-pipeline-execution-started
+        - codepipeline-pipeline-pipeline-execution-resumed
+        - codepipeline-pipeline-pipeline-execution-succeeded
+        - codepipeline-pipeline-pipeline-execution-superseded
+        - codepipeline-pipeline-manual-approval-failed
+        - codepipeline-pipeline-manual-approval-needed
+        - codepipeline-pipeline-manual-approval-succeeded
+      Name: !Sub "${ProjectName}-${DeploymentEnv}-CodePipelineNotification"
+      Resource: !Sub "arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-apiBuildPipeline-${DeploymentEnv}-apiAppDeployPipeline"
+      Status: ENABLED
+      Targets:
+        - TargetType: AWSChatbotSlack
+          TargetAddress: !GetAtt SlackChatbotConfiguration.Arn

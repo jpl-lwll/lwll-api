@@ -1,0 +1,35 @@
+{
+    "mnist": {
+        "full_number_of_samples_train": 60000,
+        "language_from": null,
+        "zsl_description": {
+            "9": "9 is an upside down 6"
+        },
+        "sample_number_of_samples_test": 1000,
+        "language_to": null,
+        "sample_number_of_samples_train": 10,
+        "full_total_codecs": null,
+        "full_number_of_samples_test": 10000,
+        "sample_number_of_classes": 10,
+        "dataset_type": "image_classification",
+        "license_citation": "Example License",
+        "name": "mnist",
+        "classes": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+        ],
+        "license_link": "license_link",
+        "number_of_channels": 1,
+        "license_requirements": "None",
+        "full_number_of_classes": 10,
+        "sample_total_codecs": null
+    }
+}
